@@ -27,9 +27,9 @@ import {
   type GanttDataItem,
   buildGanttRowSegments,
   buildGanttTimeAxisTicks,
-  buildMaxTryByTaskId,
   GANTT_TIME_AXIS_TICK_COUNT,
   gridSummariesToTaskIdMap,
+  getGanttSegmentTo,
   transformGanttData,
 } from "./utils";
 
@@ -91,32 +91,6 @@ describe("gridSummariesToTaskIdMap", () => {
   });
 });
 
-describe("buildMaxTryByTaskId", () => {
-  it("returns the maximum try number for each task", () => {
-    const items: Array<GanttDataItem> = [
-      { taskId: "t1", tryNumber: 1, x: [0, 1], y: "t1" },
-      { taskId: "t1", tryNumber: 3, x: [0, 1], y: "t1" },
-      { taskId: "t1", tryNumber: 2, x: [0, 1], y: "t1" },
-      { taskId: "t2", tryNumber: 1, x: [0, 1], y: "t2" },
-    ];
-    const map = buildMaxTryByTaskId(items);
-
-    expect(map.get("t1")).toBe(3);
-    expect(map.get("t2")).toBe(1);
-  });
-
-  it("defaults to 1 when tryNumber is undefined", () => {
-    const items: Array<GanttDataItem> = [{ taskId: "t1", x: [0, 1], y: "t1" }];
-    const map = buildMaxTryByTaskId(items);
-
-    expect(map.get("t1")).toBe(1);
-  });
-
-  it("returns an empty map for empty input", () => {
-    expect(buildMaxTryByTaskId([]).size).toBe(0);
-  });
-});
-
 describe("buildGanttRowSegments", () => {
   it("groups items by task id in flat node order", () => {
     const flatNodes: Array<GridTask> = [
@@ -137,13 +111,70 @@ describe("buildGanttRowSegments", () => {
 });
 
 describe("transformGanttData", () => {
+  it("removes execution selectors when linking an aggregate group", () => {
+    expect(
+      getGanttSegmentTo({
+        dagId: "dag",
+        item: { isGroup: true, taskId: "body", x: [0, 1], y: "body" },
+        pathname: "/dags/dag/runs/run",
+        runId: "run",
+        searchParams: new URLSearchParams("region_id=stale&region_index=2&try_number=4&view=graph"),
+      }),
+    ).toEqual({
+      pathname: "/dags/dag/runs/run/tasks/group/body",
+      search: "view=graph",
+    });
+  });
+
+  it("keeps colliding loop tries distinct and links their exact execution", () => {
+    const allTries = [0, 2].map((index) => ({
+      end_date: "2024-03-14T10:05:00Z",
+      id: `execution-${index}`,
+      map_index: -1,
+      queued_dttm: null,
+      region_id: "00000000-0000-0000-0000-000000000123",
+      region_index: index,
+      scheduled_dttm: null,
+      start_date: "2024-03-14T10:00:00Z",
+      state: "success" as const,
+      task_display_name: "work",
+      task_id: "body.work",
+      try_number: 1,
+    }));
+    const items = transformGanttData({
+      allTries,
+      flatNodes: [{ depth: 0, id: "body.work", is_mapped: false, label: "work" }],
+      gridSummaries: [],
+    });
+
+    expect(items.map((item) => item.taskInstanceId)).toEqual(["execution-0", "execution-2"]);
+    for (const [index, item] of items.entries()) {
+      expect(
+        getGanttSegmentTo({
+          dagId: "dag",
+          item,
+          pathname: "/dags/dag/runs/run",
+          runId: "run",
+          searchParams: new URLSearchParams("region_id=stale&region_index=99"),
+        }),
+      ).toEqual({
+        pathname: "/dags/dag/runs/run/tasks/body.work",
+        search: `region_id=${allTries[index]?.region_id}&region_index=${allTries[index]?.region_index}&try_number=1`,
+      });
+    }
+  });
+
   it("returns no segments when the try has no schedule, queue, or start time", () => {
     const result = transformGanttData({
       allTries: [
         {
           end_date: null,
+          id: "try-1",
           is_mapped: false,
+          map_index: -1,
           queued_dttm: null,
+          region_id: "00000000-0000-0000-0000-000000000000",
+          region_index: -1,
           scheduled_dttm: null,
           start_date: null,
           state: null,
@@ -165,8 +196,12 @@ describe("transformGanttData", () => {
       allTries: [
         {
           end_date: null,
+          id: "try-2",
           is_mapped: false,
+          map_index: -1,
           queued_dttm: null,
+          region_id: "00000000-0000-0000-0000-000000000000",
+          region_index: -1,
           scheduled_dttm: null,
           start_date: "2024-03-14T10:00:00+00:00",
           state: "running",
@@ -210,8 +245,12 @@ describe("transformGanttData", () => {
       allTries: [
         {
           end_date: "2024-03-14T10:05:00+00:00",
+          id: "try-3",
           is_mapped: false,
+          map_index: -1,
           queued_dttm: null,
+          region_id: "00000000-0000-0000-0000-000000000000",
+          region_index: -1,
           scheduled_dttm: null,
           start_date: "2024-03-14T10:00:00+00:00",
           state: "success",
@@ -235,8 +274,12 @@ describe("transformGanttData", () => {
       allTries: [
         {
           end_date: "2024-03-14T10:05:00+00:00",
+          id: "try-4",
           is_mapped: false,
+          map_index: -1,
           queued_dttm: "2024-03-14T09:59:00+00:00",
+          region_id: "00000000-0000-0000-0000-000000000000",
+          region_index: -1,
           scheduled_dttm: "2024-03-14T09:58:00+00:00",
           start_date: "2024-03-14T10:00:00+00:00",
           state: "success",
@@ -260,8 +303,12 @@ describe("transformGanttData", () => {
       allTries: [
         {
           end_date: "2024-03-14T10:05:00+00:00",
+          id: "try-5",
           is_mapped: false,
+          map_index: -1,
           queued_dttm: "2024-03-14T09:59:00+00:00",
+          region_id: "00000000-0000-0000-0000-000000000000",
+          region_index: -1,
           scheduled_dttm: "2024-03-14T09:58:00+00:00",
           start_date: "2024-03-14T10:00:00+00:00",
           state: "success",
@@ -295,8 +342,12 @@ describe("transformGanttData", () => {
         allTries: [
           {
             end_date: null,
+            id: "running-try",
             is_mapped: false,
+            map_index: -1,
             queued_dttm: "2024-03-14T09:59:00+00:00",
+            region_id: "00000000-0000-0000-0000-000000000000",
+            region_index: -1,
             scheduled_dttm: null,
             start_date: "2024-03-14T10:00:00+00:00",
             state: "running",
@@ -324,8 +375,12 @@ describe("transformGanttData", () => {
       allTries: [
         {
           end_date: "2024-03-14T10:05:00+00:00",
+          id: "try-6",
           is_mapped: false,
+          map_index: -1,
           queued_dttm: "2024-03-14T09:59:00+00:00",
+          region_id: "00000000-0000-0000-0000-000000000000",
+          region_index: -1,
           scheduled_dttm: null,
           start_date: "2024-03-14T10:00:00+00:00",
           state: "success",
@@ -348,8 +403,12 @@ describe("transformGanttData", () => {
       allTries: [
         {
           end_date: "2024-03-14T10:05:00+00:00",
+          id: "try-7",
           is_mapped: false,
+          map_index: -1,
           queued_dttm: null,
+          region_id: "00000000-0000-0000-0000-000000000000",
+          region_index: -1,
           scheduled_dttm: null,
           start_date: "2024-03-14T10:00:00+00:00",
           state: "success",
@@ -371,8 +430,12 @@ describe("transformGanttData", () => {
       allTries: [
         {
           end_date: "2024-03-14T10:05:00+00:00",
+          id: "try-8",
           is_mapped: false,
+          map_index: -1,
           queued_dttm: null,
+          region_id: "00000000-0000-0000-0000-000000000000",
+          region_index: -1,
           scheduled_dttm: null,
           start_date: "2024-03-14T10:00:00+00:00",
           state: "failed",
@@ -382,8 +445,12 @@ describe("transformGanttData", () => {
         },
         {
           end_date: "2024-03-14T09:55:00+00:00",
+          id: "try-9",
           is_mapped: false,
+          map_index: -1,
           queued_dttm: null,
+          region_id: "00000000-0000-0000-0000-000000000000",
+          region_index: -1,
           scheduled_dttm: null,
           start_date: "2024-03-14T09:50:00+00:00",
           state: "failed",
