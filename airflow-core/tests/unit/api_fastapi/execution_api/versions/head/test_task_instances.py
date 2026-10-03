@@ -307,22 +307,14 @@ def test_execution_count_uses_public_index_and_exact_region_scope(client, loop_r
     )
 
 
-@pytest.mark.parametrize("endpoint", ["states", "previous"])
-def test_execution_reader_rejects_loop_collision_and_accepts_exact_scope(client, loop_reader_tis, endpoint):
+def test_execution_states_reject_loop_collision_and_accept_exact_scope(client, loop_reader_tis):
     current, _ = loop_reader_tis
     params = {"dag_id": current.dag_id, "task_ids": [current.task_id], "map_index": -1}
     url = "/execution/task-instances/states"
-    if endpoint == "previous":
-        url = f"/execution/task-instances/previous/{current.dag_id}/{current.task_id}"
-        params = {"map_index": -1}
     assert client.get(url, params=params).status_code == 409
     response = client.get(url, params={**params, "region_id": str(current.region_id), "region_index": 2})
     assert response.status_code == 200
-    if endpoint == "states":
-        assert response.json() == {"task_states": {current.run_id: {current.task_id: "success"}}}
-    else:
-        assert response.json()["map_index"] == -1
-        assert response.json()["region_index"] == 2
+    assert response.json() == {"task_states": {current.run_id: {current.task_id: "success"}}}
 
 
 def test_execution_breadcrumbs_keep_regional_identity_separate_from_map_index(client, loop_reader_tis):
@@ -337,25 +329,60 @@ def test_execution_breadcrumbs_keep_regional_identity_separate_from_map_index(cl
     assert {row["region_index"] for row in breadcrumbs} == {1, 2}
 
 
-def test_previous_ti_full_coordinates_override_default_public_index(client, dag_maker, session):
-    with dag_maker(serialized=True):
-        PythonOperator.partial(task_id="mapped", python_callable=str).expand(op_args=[[0], [1], [2]])
-    dr = dag_maker.create_dagrun()
-    region = DynamicRegion(dag_id=dr.dag_id, run_id=dr.run_id, node_id="mapped")
-    session.add(region)
-    session.flush()
-    for ti in dr.task_instances:
-        ti.region_id = region.id
+@pytest.fixture
+def two_run_loop_tis(dag_maker, session):
+    @task_group
+    def body():
+        EmptyOperator(task_id="task")
+
+    with dag_maker(serialized=True) as dag:
+        create_loop(body, max_iterations=3)
+    runs = {
+        "old": dag_maker.create_dagrun(run_id="old", logical_date=timezone.datetime(2025, 1, 1)),
+        "current": dag_maker.create_dagrun(run_id="current", logical_date=timezone.datetime(2025, 1, 2)),
+    }
+    passes = {}
+    for name, dr in runs.items():
+        region = DynamicRegion(dag_id=dr.dag_id, run_id=dr.run_id, node_id="body")
+        session.add(region)
+        session.flush()
+        first = next(ti for ti in dr.task_instances if ti.task_id == "body.task")
+        first.region_id, first.region_index, first.state = region.id, 0, State.SUCCESS
+        second = TaskInstance(
+            task=dag.get_task(first.task_id), run_id=dr.run_id, dag_version_id=first.dag_version_id
+        )
+        second.region_id, second.region_index, second.state = region.id, 1, State.SUCCESS
+        session.add(second)
+        passes[name] = {0: first, 1: second}
     session.commit()
+    return passes
+
+
+@pytest.mark.parametrize("requester_pass", [0, 1])
+def test_previous_ti_for_loop_task_uses_requester_pass(client, two_run_loop_tis, requester_pass):
+    requester = two_run_loop_tis["current"][requester_pass]
+    exec_app = client.app.routes[-1].app
+    exec_app.dependency_overrides[require_auth] = lambda: TIToken(id=requester.id, claims=TIClaims())
 
     response = client.get(
-        f"/execution/task-instances/previous/{dr.dag_id}/mapped",
-        params={"region_id": str(region.id), "region_index": 2},
+        f"/execution/task-instances/previous/{requester.dag_id}/{requester.task_id}",
+        params={"logical_date": "2025-01-02T00:00:00Z"},
     )
 
     assert response.status_code == 200
-    assert response.json()["map_index"] == 2
-    assert response.json()["region_index"] == 2
+    assert response.json()["run_id"] == "old"
+    assert response.json()["region_index"] == requester_pass
+
+
+def test_previous_ti_for_other_loop_task_returns_latest_pass(client, two_run_loop_tis):
+    response = client.get(
+        f"/execution/task-instances/previous/{two_run_loop_tis['old'][0].dag_id}/body.task",
+        params={"logical_date": "2025-01-02T00:00:00Z"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["run_id"] == "old"
+    assert response.json()["region_index"] == 1
 
 
 class TestTIRunState:

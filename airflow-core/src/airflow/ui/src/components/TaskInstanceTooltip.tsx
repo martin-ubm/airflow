@@ -38,7 +38,7 @@ type LightGridTaskInstanceSummaryWithWhen = {
 } & LightGridTaskInstanceSummary;
 
 type Props = {
-  readonly iteration?: number;
+  readonly loopMaxIterations?: number | null;
   readonly runId?: string | null;
   readonly taskInstance?:
     LightGridTaskInstanceSummaryWithWhen | TaskInstanceHistoryResponse | TaskInstanceResponse;
@@ -47,7 +47,7 @@ type Props = {
 
 const TaskInstanceTooltip = ({
   children,
-  iteration,
+  loopMaxIterations,
   positioning,
   runId,
   taskInstance,
@@ -77,11 +77,6 @@ const TaskInstanceTooltip = ({
               <Text>
                 {translate("taskId")}: {taskInstance.task_id}
               </Text>
-              {iteration === undefined ? undefined : (
-                <Text>
-                  {translate("taskInstance.iteration")}: {iteration}
-                </Text>
-              )}
               <Text>
                 {translate("state")}:{" "}
                 {taskInstance.state
@@ -91,6 +86,23 @@ const TaskInstanceTooltip = ({
               {"dag_run_id" in taskInstance || (runId !== undefined && runId !== null && runId !== "") ? (
                 <Text>
                   {translate("runId")}: {"dag_run_id" in taskInstance ? taskInstance.dag_run_id : runId}
+                </Text>
+              ) : undefined}
+              {"loop_iterations" in taskInstance
+                ? taskInstance.loop_iterations?.map((loop) => (
+                    <Text key={loop.loop_id}>
+                      {translate("taskInstance.iteration")}: {loop.iteration} ({loop.loop_id})
+                    </Text>
+                  ))
+                : undefined}
+              {"loop_iterations_count" in taskInstance &&
+              taskInstance.loop_iterations_count !== null &&
+              taskInstance.loop_iterations_count !== undefined ? (
+                <Text>
+                  {translate("taskInstance.loopIterations")}: {taskInstance.loop_iterations_count}
+                  {loopMaxIterations === null || loopMaxIterations === undefined
+                    ? undefined
+                    : `/${loopMaxIterations}`}
                 </Text>
               ) : undefined}
               {"scheduled_when" in taskInstance &&

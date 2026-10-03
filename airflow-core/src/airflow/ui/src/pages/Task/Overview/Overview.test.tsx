@@ -47,6 +47,8 @@ const wrapperWithSearch = (search: string) => {
 };
 
 vi.mock("openapi/queries", () => ({
+  useGridServiceGetDagStructure: () => ({ data: undefined }),
+  useGridServiceGetLoopHistory: () => ({ data: undefined }),
   usePluginServiceGetPlugins: () => ({
     data: {
       plugins: [

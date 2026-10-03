@@ -53,7 +53,6 @@ from airflow.sdk import TaskInstanceState
 from airflow.sdk.api.datamodels._generated import LoopContext, PreviousTIResponse
 from airflow.sdk.execution_time.comms import (
     DeleteXCom,
-    GetPreviousTI,
     GetTaskBreadcrumbs,
     GetTaskStates,
     GetTICount,
@@ -92,7 +91,6 @@ class _MockBody(BaseModel):
         (DeleteXCom, {}),
         (GetTICount, {}),
         (GetTaskStates, {}),
-        (GetPreviousTI, {}),
         (GetTaskBreadcrumbs, {}),
     ],
 )

@@ -1442,25 +1442,25 @@ def get_task_instance_count(
     return count or 0
 
 
-@router.get(
-    "/previous/{dag_id}/{task_id}",
-    status_code=status.HTTP_200_OK,
-    responses=create_openapi_http_exception_doc(
-        [(status.HTTP_409_CONFLICT, "Explicit region coordinates are required to select the previous task")]
-    ),
-)
-async def get_previous_task_instance(
+_MAX_PREVIOUS_TIS_SCANNED = 500
+
+
+@router.get("/previous/{dag_id}/{task_id}", status_code=status.HTTP_200_OK)
+def get_previous_task_instance(
     dag_id: str,
     task_id: str,
-    session: AsyncSessionDep,
+    session: SessionDep,
+    dag_bag: DagBagDep,
     logical_date: Annotated[UtcDateTime | None, Query()] = None,
     map_index: Annotated[int, Query()] = -1,
     state: Annotated[TaskInstanceState | None, Query()] = None,
-    region_id: UUID | None = None,
-    region_index: int | None = None,
+    token: TIToken = CurrentTIToken,
 ) -> PreviousTIResponse | None:
     """
     Get the previous task instance matching the given criteria.
+
+    When the requesting task instance is of ``task_id``, the previous task instance sits at the same
+    loop position as the requester. Otherwise the latest pass of a loop task is returned.
 
     :param dag_id: DAG ID (from path)
     :param task_id: Task ID (from path)
@@ -1469,19 +1469,14 @@ async def get_previous_task_instance(
     :param state: If provided, filters by TaskInstance state
     """
     query = (
-        select(TI, public_map_index_expression(TI), func.count().over(partition_by=TI.run_id))
+        select(TI, public_map_index_expression(TI))
         .where(TI.working_set.is_(True))
         .join(DR, (TI.dag_id == DR.dag_id) & (TI.run_id == DR.run_id))
         .options(contains_eager(TI.dag_run).load_only(DR.logical_date))
         .where(TI.dag_id == dag_id, TI.task_id == task_id)
-        .order_by(DR.logical_date.desc())
+        .order_by(DR.logical_date.desc(), TI.region_index.desc())
     )
-    query = _filter_task_coordinates(
-        query,
-        map_index=None if region_id is not None and region_index is not None else map_index,
-        region_id=region_id,
-        region_index=region_index,
-    )
+    query = _filter_task_coordinates(query, map_index=map_index, region_id=None, region_index=None)
 
     if logical_date:
         # Find TI with logical_date BEFORE the provided date (previous)
@@ -1490,15 +1485,27 @@ async def get_previous_task_instance(
     if state:
         query = query.where(TI.state == state)
 
-    row = (await session.execute(query.limit(1))).first()
-    if row is None:
+    first = session.execute(query.limit(1)).first()
+    if first is None:
         return None
-    ti, public_index, run_count = row
-    if run_count > 1:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT, "Select explicit region coordinates for the previous task"
+    if first[0].region_id != SENTINEL_REGION_ID:
+        resolver = TaskCoordinateResolver(dag_bag, session)
+        requester = session.get(TI, token.id)
+        iterations = (
+            resolver.loop_iterations(requester)
+            if requester is not None and (requester.dag_id, requester.task_id) == (dag_id, task_id)
+            else []
         )
-
+        if iterations:
+            with contextlib.closing(
+                session.execute(query.limit(_MAX_PREVIOUS_TIS_SCANNED).execution_options(yield_per=50))
+            ) as rows:
+                first = next(
+                    (row for row in rows if _has_loop_iterations(resolver, row[0], iterations)), None
+                )
+            if first is None:
+                return None
+    ti, public_index = first
     return PreviousTIResponse(
         task_id=ti.task_id,
         dag_id=ti.dag_id,
@@ -1513,6 +1520,13 @@ async def get_previous_task_instance(
         region_index=ti.region_index,
         duration=ti.duration,
     )
+
+
+def _has_loop_iterations(resolver: TaskCoordinateResolver, ti: TI, iterations: list[tuple[str, int]]) -> bool:
+    try:
+        return resolver.loop_iterations(ti) == iterations
+    except ValueError:
+        return False
 
 
 @router.get(

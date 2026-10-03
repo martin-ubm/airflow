@@ -85,6 +85,7 @@ vi.mock("src/components/DataTable", () => ({
     readonly data: ReadonlyArray<TaskInstanceResponse>;
   }) => {
     const renderedMapIndexColumn = columns.find((column) => column.accessorKey === "rendered_map_index");
+    const iterationColumn = columns.find((column) => column.accessorKey === "loop_iterations");
 
     return (
       <table>
@@ -92,6 +93,7 @@ vi.mock("src/components/DataTable", () => ({
           {data.map((taskInstance) => (
             <tr key={`${taskInstance.task_id}-${taskInstance.map_index}`}>
               <td>{renderedMapIndexColumn?.cell?.({ row: { original: taskInstance } })}</td>
+              <td>{iterationColumn?.cell?.({ row: { original: taskInstance } })}</td>
             </tr>
           ))}
         </tbody>
@@ -168,5 +170,65 @@ describe("TaskInstances", () => {
     render(<TaskInstances />, { wrapper: Wrapper });
 
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
+
+  it("shows nested loop iterations separately from mapped slots", () => {
+    vi.mocked(useTaskInstanceServiceGetTaskInstances).mockReturnValue(
+      getTaskInstancesResponse([
+        {
+          ...mappedTaskInstance,
+          loop_iterations: [
+            { iteration: 2, loop_id: "outer" },
+            { iteration: 3, loop_id: "outer.inner" },
+          ],
+        },
+      ]),
+    );
+    render(<TaskInstances />, { wrapper: Wrapper });
+    expect(screen.getByRole("link", { name: "1" })).toBeInTheDocument();
+    expect(screen.getByText("outer: 2 / outer.inner: 3")).toBeInTheDocument();
+  });
+
+  it("does not display a loop iteration through rendered map index", () => {
+    vi.mocked(useTaskInstanceServiceGetTaskInstances).mockReturnValue(
+      getTaskInstancesResponse([
+        {
+          ...mappedTaskInstance,
+          loop_iterations: [{ iteration: 7, loop_id: "loop" }],
+          map_index: -1,
+          rendered_map_index: "7",
+        },
+      ]),
+    );
+    render(<TaskInstances />, { wrapper: Wrapper });
+    expect(screen.queryByText("7")).not.toBeInTheDocument();
+    expect(screen.getByText("loop: 7")).toBeInTheDocument();
+  });
+
+  it("keeps loop iteration filters separate from mapped slot filters", () => {
+    mockParams.groupId = "loop";
+    mockSearchParams = new URLSearchParams("iteration=3&map_index=1&loop_region_id=selected-region");
+    vi.mocked(useTaskInstanceServiceGetTaskInstances).mockReturnValue(getTaskInstancesResponse([]));
+    render(<TaskInstances loopGroupId="loop" />, { wrapper: Wrapper });
+    expect(useTaskInstanceServiceGetTaskInstances).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        iteration: 3,
+        loopId: "loop",
+        loopRegionId: "selected-region",
+        mapIndex: [1],
+      }),
+      undefined,
+      expect.any(Object),
+    );
+  });
+  it("ignores stale loop selectors outside a loop group", () => {
+    mockSearchParams = new URLSearchParams("iteration=3&loop_region_id=old-family");
+    vi.mocked(useTaskInstanceServiceGetTaskInstances).mockReturnValue(getTaskInstancesResponse([]));
+    render(<TaskInstances />, { wrapper: Wrapper });
+    expect(useTaskInstanceServiceGetTaskInstances).toHaveBeenLastCalledWith(
+      expect.objectContaining({ iteration: undefined, loopId: undefined, loopRegionId: undefined }),
+      undefined,
+      expect.any(Object),
+    );
   });
 });

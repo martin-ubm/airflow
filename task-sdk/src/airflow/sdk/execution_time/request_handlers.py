@@ -175,8 +175,6 @@ def handle_get_task_states(client: Client, msg: GetTaskStates) -> tuple[BaseMode
 def handle_get_previous_ti(client: Client, msg: GetPreviousTI) -> tuple[BaseModel | None, dict[str, bool]]:
     """Fetch the previous task instance."""
     resp = client.task_instances.get_previous(
-        region_id=msg.region_id,
-        region_index=msg.region_index,
         dag_id=msg.dag_id,
         task_id=msg.task_id,
         logical_date=msg.logical_date,

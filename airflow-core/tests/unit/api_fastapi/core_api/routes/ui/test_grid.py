@@ -873,6 +873,8 @@ class TestGetGridDataEndpoint:
                 },
             ],
         }
+        for ti in expected["task_instances"]:
+            ti["loop_iterations_count"] = None
         for obj in actual, expected:
             tis = obj["task_instances"]
             tis[:] = sorted(tis, key=lambda x: x["task_id"])
@@ -978,6 +980,8 @@ class TestGetGridDataEndpoint:
                 "state": None,
             },
         ]
+        for ti in expected:
+            ti["loop_iterations_count"] = None
         expected = sort_dict(expected)
         actual = sort_dict(actual)
         assert actual == expected

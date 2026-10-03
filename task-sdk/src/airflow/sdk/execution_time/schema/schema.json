@@ -2488,31 +2488,6 @@
     "GetPreviousTI": {
       "description": "Request to get previous task instance.",
       "properties": {
-        "region_id": {
-          "anyOf": [
-            {
-              "format": "uuid",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Region Id"
-        },
-        "region_index": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Region Index"
-        },
         "dag_id": {
           "title": "Dag Id",
           "type": "string"

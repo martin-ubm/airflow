@@ -1176,8 +1176,6 @@ class GetPreviousDagRun(BaseModel):
 class GetPreviousTI(BaseModel):
     """Request to get previous task instance."""
 
-    region_id: UUID | None = None
-    region_index: int | None = None
     dag_id: str
     task_id: str
     logical_date: AwareDatetime | None = None

@@ -443,9 +443,6 @@ class TaskInstanceOperations:
         logical_date: datetime | None = None,
         map_index: int = -1,
         state: TaskInstanceState | str | None = None,
-        *,
-        region_id: uuid.UUID | None = None,
-        region_index: int | None = None,
     ) -> PreviousTIResult:
         """
         Get the previous task instance matching the given criteria.
@@ -462,7 +459,6 @@ class TaskInstanceOperations:
         if state:
             params["state"] = state.value if isinstance(state, TaskInstanceState) else state
 
-        params.update(_region_params(region_id, region_index))
         resp = self.client.get(f"task-instances/previous/{dag_id}/{task_id}", params=params)
         return PreviousTIResult(task_instance=resp.json())
 

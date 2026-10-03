@@ -38,7 +38,6 @@ from airflow.sdk.execution_time.comms import (
     ErrorResponse,
     GetAssetStateStoreByName,
     GetAssetStateStoreByUri,
-    GetPreviousTI,
     GetTaskBreadcrumbs,
     GetTaskStates,
     GetTICount,
@@ -58,7 +57,6 @@ from airflow.sdk.execution_time.request_handlers import (
     handle_delete_xcom,
     handle_get_asset_state_store_by_name,
     handle_get_asset_state_store_by_uri,
-    handle_get_previous_ti,
     handle_get_task_states,
     handle_get_ti_count,
     handle_get_xcom,
@@ -100,7 +98,6 @@ def client_ssl_cache():
         (DeleteXCom, handle_delete_xcom, {}, None),
         (GetTICount, handle_get_ti_count, {}, 1),
         (GetTaskStates, handle_get_task_states, {}, {"task_states": {}}),
-        (GetPreviousTI, handle_get_previous_ti, {}, None),
         (
             GetTaskBreadcrumbs,
             lambda client, msg: ActivitySubprocess._handle_get_task_breadcrumbs(

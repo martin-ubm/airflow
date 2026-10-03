@@ -22,15 +22,25 @@ from uuid import UUID
 
 from fastapi import Depends, HTTPException, Query, status
 from pydantic import BaseModel
+from sqlalchemy import and_, false, or_, select
 
 from airflow._shared.state import TaskScope
 from airflow.api_fastapi.common.dagbag import DagBagDep
 from airflow.api_fastapi.common.db.common import SessionDep
-from airflow.models.dynamic_region import SENTINEL_REGION_ID, AmbiguousProducerError
+from airflow.models.dynamic_region import (
+    SENTINEL_REGION_ID,
+    AmbiguousProducerError,
+    DynamicRegion,
+    loop_position,
+)
 from airflow.models.task_coordinates import TaskCoordinateResolver
+from airflow.models.taskinstance import TaskInstance
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from sqlalchemy.orm import Session
+    from sqlalchemy.sql.elements import ColumnElement
 
     from airflow.models.dagbag import DBDagBag
     from airflow.models.task_coordinates import TaskCoordinate
@@ -49,6 +59,13 @@ class TaskCoordinateView:
     def __getattr__(self, name: str) -> Any:
         if name == "map_index":
             return self.resolver.public_map_index(self.value)
+        if name == "rendered_map_index" and self.resolver.public_map_index(self.value) < 0:
+            return None
+        if name == "loop_iterations":
+            return [
+                {"loop_id": loop_id, "iteration": iteration}
+                for loop_id, iteration in self.resolver.loop_iterations(self.value)
+            ]
         return getattr(self.value, name)
 
 
@@ -56,6 +73,47 @@ def task_coordinate_response(
     schema: type[Response], value: TaskCoordinate, resolver: TaskCoordinateResolver
 ) -> Response:
     return schema.model_validate(TaskCoordinateView(value, resolver))
+
+
+def task_coordinate_responses(
+    schema: type[Response], values: Iterable[TaskCoordinate], resolver: TaskCoordinateResolver
+) -> list[Response]:
+    values = list(values)
+    resolver.prefetch_regions(values)
+    return [task_coordinate_response(schema, value, resolver) for value in values]
+
+
+def loop_iteration_filter(
+    *,
+    dag_id: str,
+    run_id: str,
+    loop_id: str,
+    iteration: int | None,
+    loop_region_id: UUID | None,
+    session: Session,
+) -> ColumnElement[bool]:
+    regions = {
+        region.id: region
+        for region in session.scalars(
+            select(DynamicRegion).where(DynamicRegion.dag_id == dag_id, DynamicRegion.run_id == run_id)
+        )
+    }
+    any_index: list[UUID] = []
+    loop_node: list[UUID] = []
+    for region in regions.values():
+        position = loop_position(regions, region.id, -1, loop_id)
+        if position is None or (loop_region_id is not None and position[0] != loop_region_id):
+            continue
+        if iteration is not None and region.node_id == loop_id:
+            loop_node.append(region.id)
+        elif iteration is None or position[1] == iteration:
+            any_index.append(region.id)
+    predicates: list[ColumnElement[bool]] = []
+    if any_index:
+        predicates.append(TaskInstance.region_id.in_(any_index))
+    if loop_node:
+        predicates.append(and_(TaskInstance.region_id.in_(loop_node), TaskInstance.region_index == iteration))
+    return or_(*predicates) if predicates else false()
 
 
 def resolve_task_scope(

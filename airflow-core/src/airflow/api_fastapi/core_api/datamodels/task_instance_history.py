@@ -30,6 +30,7 @@ from pydantic import (
 from airflow._shared.secrets_masker import redact
 from airflow.api_fastapi.core_api.base import BaseModel
 from airflow.api_fastapi.core_api.datamodels.dag_versions import DagVersionResponse
+from airflow.api_fastapi.core_api.datamodels.task_instances import LoopIterationResponse
 from airflow.utils.state import TaskInstanceState
 
 
@@ -46,6 +47,7 @@ class TaskInstanceHistoryResponse(BaseModel):
     map_index: int
     region_id: UUID
     region_index: int
+    loop_iterations: list[LoopIterationResponse] = Field(default_factory=list)
     start_date: datetime | None
     end_date: datetime | None
     duration: float | None

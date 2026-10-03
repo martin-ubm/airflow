@@ -107,6 +107,7 @@ def create_loop(
         gate = LoopGateOperator(
             task_id=get_unique_task_id(gate_name, task_group=group),
             until=until,
+            doc_md=inspect.cleandoc(until.__doc__) if until is not None and until.__doc__ else None,
         )
         terminal >> gate
         group.terminal_task_id = terminal.task_id

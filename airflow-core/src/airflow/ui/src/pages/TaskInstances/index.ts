@@ -16,4 +16,4 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-export { TaskInstances } from "./TaskInstances";
+export { getRowKey, taskInstanceColumns, TaskInstances } from "./TaskInstances";

@@ -47,6 +47,7 @@ def test_loop_preserves_group_configuration_and_body_arguments(mapped, condition
         return terminal(value)
 
     def converged(*, loop):
+        """Stop after the second iteration."""
         return loop.index == 1
 
     with DAG("public_loop", schedule=None) as pipeline:
@@ -62,6 +63,7 @@ def test_loop_preserves_group_configuration_and_body_arguments(mapped, condition
     gate = pipeline.get_task("refine.converged" if conditional else "refine.__loop_gate")
     assert group.doc_md == "Refine the input."
     assert gate.until is (converged if conditional else None)
+    assert gate.doc_md == ("Stop after the second iteration." if conditional else None)
     assert gate.upstream_task_ids == {"refine.terminal"}
     assert gate.downstream_task_ids == {"finish"}
     result = pipeline.get_task("refine.terminal")

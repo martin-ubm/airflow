@@ -32,7 +32,6 @@ from airflow.dag_processing.processor import DagFileParsingResult  # noqa: SDK00
 from airflow.sdk.api.datamodels._generated import PreviousTIResponse, TaskInstance, TIRunContext
 from airflow.sdk.execution_time.comms import (
     DeleteXCom,
-    GetPreviousTI,
     GetTaskBreadcrumbs,
     GetTaskStates,
     GetTICount,
@@ -68,8 +67,6 @@ class AddRegionSelectors(VersionChange):
         schema(GetTICount).field("region_index").didnt_exist,
         schema(GetTaskStates).field("region_id").didnt_exist,
         schema(GetTaskStates).field("region_index").didnt_exist,
-        schema(GetPreviousTI).field("region_id").didnt_exist,
-        schema(GetPreviousTI).field("region_index").didnt_exist,
         schema(GetTaskBreadcrumbs).field("region_id").didnt_exist,
         schema(GetTaskBreadcrumbs).field("region_index").didnt_exist,
         schema(GetXCom).field("region_id").didnt_exist,

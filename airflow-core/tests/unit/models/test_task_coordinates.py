@@ -35,10 +35,65 @@ from airflow.providers.standard.operators.python import PythonOperator
 from airflow.sdk import task_group
 from airflow.sdk.definitions._internal.loop import create_loop
 from airflow.utils.log.task_log_address import prepare_task_log_contexts
+from airflow.utils.state import TaskInstanceState
 
 from tests_common.test_utils.asserts import assert_queries_count
 
 pytestmark = pytest.mark.db_test
+
+
+def test_loop_iterations_keep_pinned_definition_and_reuse_ancestry(loop_coordinates, dag_maker, session):
+    dr, producer, consumer, previous, outside = loop_coordinates
+    with dag_maker(dag_id=dr.dag_id, serialized=True):
+        EmptyOperator(task_id="body.producer")
+    dag_maker.sync_dag_to_db()
+    session.flush()
+    resolver = TaskCoordinateResolver(DBDagBag(), session)
+
+    assert resolver.loop_iterations(producer) == [("body", 2)]
+    with assert_queries_count(0):
+        assert resolver.loop_iterations(previous) == [("body", 1)]
+        assert resolver.loop_iterations(outside) == []
+    assert resolver.loop_iterations(consumer) == [("body", 2)]
+
+
+def test_mapped_task_loop_iteration_is_separate_from_map_index(dag_maker, session):
+    @task_group
+    def nested():
+        PythonOperator.partial(task_id="mapped", python_callable=str).expand(op_args=[[1], [2]])
+
+    @task_group
+    def body():
+        nested()
+
+    with dag_maker(serialized=True):
+        create_loop(body, max_iterations=4)
+    dr = dag_maker.create_dagrun()
+    ti = next(ti for ti in dr.task_instances if ti.task_id == "body.nested.mapped")
+    loop_region = session.scalars(
+        select(DynamicRegion).where(
+            DynamicRegion.dag_id == dr.dag_id,
+            DynamicRegion.run_id == dr.run_id,
+            DynamicRegion.node_id == "body",
+        )
+    ).one()
+    region = DynamicRegion(
+        dag_id=dr.dag_id,
+        run_id=dr.run_id,
+        node_id=ti.task_id,
+        parent_region_id=loop_region.id,
+        parent_region_index=3,
+    )
+    session.add(region)
+    session.flush()
+    ti.region_id, ti.region_index = region.id, 1
+    ti.try_number = 1
+    ti.state = TaskInstanceState.SUCCESS
+    session.flush()
+    resolver = TaskCoordinateResolver(DBDagBag(), session)
+
+    assert resolver.loop_iterations(ti) == [("body", 3)]
+    assert resolver.public_map_index(ti) == 1
 
 
 def test_removed_task_coordinates_degrade_to_stored_region_data(dag_maker, session):
@@ -56,6 +111,7 @@ def test_removed_task_coordinates_degrade_to_stored_region_data(dag_maker, sessi
     resolver = TaskCoordinateResolver(DBDagBag(), session)
 
     assert sorted(resolver.public_map_index(ti) for ti in removed) == [0, 1]
+    assert [resolver.loop_iterations(ti) for ti in removed] == [[], []]
 
 
 @pytest.fixture

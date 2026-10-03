@@ -34,6 +34,7 @@ export type GanttDataItem = {
   end_when?: string | null;
   isGroup?: boolean | null;
   isMapped?: boolean | null;
+  loopIterations?: GanttTaskInstance["loop_iterations"];
   /** Source try times for tooltips (matches TaskInstance `*_when` fields). */
   queued_when?: string | null;
   regionId?: string;
@@ -144,6 +145,7 @@ export const transformGanttData = ({
               endDate ?? (hasTaskRunning && startDate !== null ? new Date().toISOString() : null);
 
             const tryMetadata = {
+              loopIterations: tryRow.loop_iterations,
               regionId: tryRow.region_id,
               regionIndex: tryRow.region_index,
               taskInstanceId: tryRow.id,
@@ -312,6 +314,9 @@ export const getGanttSegmentTo = ({
 
   // Clone the pre-parsed params so mutations don't leak across segments.
   const searchParams = new URLSearchParams(baseSearchParams);
+
+  searchParams.delete(SearchParamsKeys.ITERATION);
+  searchParams.delete(SearchParamsKeys.LOOP_REGION_ID);
 
   if (item.regionId !== undefined && item.regionIndex !== undefined) {
     searchParams.set("region_id", item.regionId);
