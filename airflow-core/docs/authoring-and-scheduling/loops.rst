@@ -57,39 +57,9 @@ count is reached.
 This example improves an estimate of the square root of two until the error
 is small enough:
 
-.. code-block:: python
-
-   from airflow.sdk import dag, task, task_group
-
-
-   @dag(schedule=None, catchup=False, tags=["example"])
-   def refine_estimate():
-       @task_group
-       def refine():
-           @task
-           def improve(*, loop):
-               previous = loop.previous
-               estimate = 1.0 if previous is None else previous["estimate"]
-               return (estimate + 2.0 / estimate) / 2.0
-
-           @task
-           def evaluate(estimate):
-               return {"estimate": estimate, "error": abs(estimate * estimate - 2.0)}
-
-           evaluate(improve())
-
-       def accurate_enough(*, loop):
-           return loop.result["error"] < 0.000001
-
-       @task
-       def finished():
-           print("Refinement finished.")
-
-       refinement = refine.loop(max_iterations=10, until=accurate_enough)
-       refinement >> finished()
-
-
-   refine_estimate()
+.. exampleinclude:: /../src/airflow/example_dags/example_task_loops.py
+   :start-after: [START refine_estimate]
+   :end-before: [END refine_estimate]
 
 ``evaluate`` returns the result for the iteration. The gate reads it through
 ``loop.result``. If another iteration runs, ``improve`` reads that same result
@@ -105,23 +75,9 @@ For a fixed-count loop, omit ``until``: ``refine.loop(max_iterations=3)`` runs
 three iterations, carrying results between them. Reaching the cap completes
 a fixed-count loop successfully. Its gate is named ``__loop_gate`` within the group.
 
-.. code-block:: python
-
-   @dag(schedule=None, catchup=False, tags=["example"])
-   def fixed_task_loop():
-       @task_group
-       def accumulate():
-           @task
-           def increment(*, loop):
-               previous = loop.previous
-               return (0 if previous is None else previous) + 1
-
-           increment()
-
-       accumulate.loop(max_iterations=3)
-
-
-   fixed_task_loop()
+.. exampleinclude:: /../src/airflow/example_dags/example_task_loops.py
+   :start-after: [START fixed_loop]
+   :end-before: [END fixed_loop]
 
 For a task-group function with arguments, supply them with ``.partial()`` before
 calling ``.loop()``. Use ``.override()`` to configure the group, for example to
@@ -224,26 +180,9 @@ single value or structure. A zero-length expansion skips the mapped task and,
 under the gate's default trigger rule, skips the gate; no next iteration is
 created.
 
-.. code-block:: python
-
-   @dag(schedule=None, catchup=False, tags=["example"])
-   def mapped_task_loop():
-       @task_group
-       def process_batch():
-           @task
-           def process(value, *, loop, ti):
-               print(f"Iteration {loop.index}, mapped position {ti.map_index}")
-               return value + loop.index
-
-           process.expand(value=[1, 2])
-
-       def batch_ready(*, loop):
-           return min(loop.result) >= 2
-
-       process_batch.loop(max_iterations=3, until=batch_ready)
-
-
-   mapped_task_loop()
+.. exampleinclude:: /../src/airflow/example_dags/example_task_loops.py
+   :start-after: [START mapped_loop]
+   :end-before: [END mapped_loop]
 
 The loop iteration and mapped position are separate "coordinates". Mapped
 instance 2 in iteration 0 is distinct from mapped instance 2 in iteration 1.
