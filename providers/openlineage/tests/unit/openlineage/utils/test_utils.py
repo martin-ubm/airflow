@@ -3882,7 +3882,7 @@ class TestExtractOlInfoFromAssetEvent:
 
     @pytest.mark.db_test
     @pytest.mark.skipif(not AIRFLOW_V_3_4_PLUS, reason="Region attribution requires Airflow 3.4")
-    def test_cleared_regional_asset_source_keeps_retiring_uuid(self, dag_maker, session):
+    def test_cleared_regional_asset_source_keeps_archiving_uuid(self, dag_maker, session):
         with dag_maker(serialized=True):
             EmptyOperator(task_id="work")
         run = dag_maker.create_dagrun()
@@ -3895,10 +3895,10 @@ class TestExtractOlInfoFromAssetEvent:
         ti.region_index = 2
         ti.try_number = 1
         ti.state = TaskInstanceState.SUCCESS
-        retiring_id = ti.id
+        archiving_id = ti.id
         event = AssetEvent(
             asset_id=asset.id,
-            source_task_instance_id=retiring_id,
+            source_task_instance_id=archiving_id,
             source_dag_id=ti.dag_id,
             source_task_id=ti.task_id,
             source_run_id=ti.run_id,
@@ -3907,7 +3907,7 @@ class TestExtractOlInfoFromAssetEvent:
         session.add(event)
         session.flush()
         successor = ti.prepare_db_for_next_try(session)
-        assert successor.id != retiring_id
+        assert successor.id != archiving_id
         session.commit()
         session.expire(event)
         assert event.uri == asset.uri
@@ -3916,7 +3916,7 @@ class TestExtractOlInfoFromAssetEvent:
             dependencies = _get_ol_job_dependencies_from_asset_events([event] * 10)
 
         assert len(dependencies) == 1
-        assert dependencies[0].get("run_id") == str(retiring_id)
+        assert dependencies[0].get("run_id") == str(archiving_id)
         assert dependencies[0]["job_name"] == f"{run.dag_id}.work"
         assert len(dependencies[0]["asset_events"]) == 10
         assert ti in session

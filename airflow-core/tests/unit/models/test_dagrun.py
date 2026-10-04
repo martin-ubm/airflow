@@ -5609,7 +5609,7 @@ class TestClearPartitionRuns:
 
         with (
             mock.patch("airflow.models.dagrun._TI_CHUNK_SIZE", 6),
-            mock.patch("airflow.models.dagrun.clear_task_instances", autospec=True) as mock_cti,
+            mock.patch("airflow.models.loop_clear.clear_task_instances_for_runs", autospec=True) as mock_cti,
         ):
             cleared, tis = clear_partition_runs(
                 dag=serialized_dag,
@@ -5655,7 +5655,7 @@ class TestClearPartitionRuns:
 
         with (
             mock.patch("airflow.models.dagrun._TI_CHUNK_SIZE", 6),
-            mock.patch("airflow.models.dagrun.clear_task_instances", autospec=True) as mock_cti,
+            mock.patch("airflow.models.loop_clear.clear_task_instances_for_runs", autospec=True) as mock_cti,
         ):
             clear_partition_runs(
                 dag=serialized_dag,
