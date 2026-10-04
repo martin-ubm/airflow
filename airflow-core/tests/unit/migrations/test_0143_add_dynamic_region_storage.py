@@ -38,6 +38,7 @@ from tests_common.test_utils.db import clear_db_runs
 pytestmark = pytest.mark.db_test
 
 _migration = import_module("airflow.migrations.versions.0143_3_4_0_add_dynamic_region_storage")
+_index_migration = import_module("airflow.migrations.versions.0144_3_4_0_rename_stored_map_index")
 MODELS = (TaskInstance, TaskStateStoreModel)
 
 
@@ -60,7 +61,7 @@ def stored_rows(dag_maker, session):
             dag_id=ti.dag_id,
             run_id=ti.run_id,
             task_id=ti.task_id,
-            map_index=-1,
+            region_index=-1,
             key="state",
             value="value",
         )
@@ -92,22 +93,25 @@ def test_downgrade_then_upgrade_keeps_existing_rows_in_the_sentinel_region(
     with Operations.context(context), context.begin_transaction(_per_migration=True):
         if connection.dialect.name == "sqlite":
             connection.exec_driver_sql(f"PRAGMA foreign_keys={int(sqlite_foreign_keys)}")
+        _index_migration.downgrade()
         _migration.downgrade()
         _migration.upgrade()
+        _index_migration.upgrade()
     if connection.dialect.name == "sqlite":
         assert connection.exec_driver_sql("PRAGMA foreign_keys").scalar_one() == sqlite_foreign_keys
     session.expire_all()
     for model in MODELS:
         row = session.scalars(select(model)).one()
         assert row.region_id == UUID(int=0)
-        assert row.map_index == -1
+        assert row.region_index == -1
 
 
 @pytest.mark.parametrize("model", MODELS)
 def test_downgrade_refuses_each_old_coordinate_collision_before_ddl(stored_rows, session, model):
     connection = session.connection()
     table = model.__table__
-    duplicate = dict(connection.execute(select(table)).mappings().one())
+    row = connection.execute(select(table)).mappings().one()
+    duplicate = {column.key: row[column.name] for column in table.columns}
     duplicate["region_id"] = uuid4()
     if model is TaskInstance:
         duplicate["id"] = uuid4()
@@ -126,14 +130,18 @@ def test_downgrade_refuses_each_old_coordinate_collision_before_ddl(stored_rows,
     connection.execute(table.insert().values(**duplicate))
     try:
         with Operations.context(MigrationContext.configure(connection)):
-            # SQLite is checked in Python; PostgreSQL and MySQL raise from the SQL guard. PostgreSQL
-            # aborts the transaction on error, but MySQL's guard procedure is DDL, which would commit
-            # away a savepoint.
-            savepoint = (
-                connection.begin_nested() if connection.dialect.name == "postgresql" else nullcontext()
-            )
-            with pytest.raises((RuntimeError, DBAPIError), match=model.__tablename__), savepoint:
-                _migration.downgrade()
+            _index_migration.downgrade()
+            try:
+                # SQLite is checked in Python; PostgreSQL and MySQL raise from the SQL guard. PostgreSQL
+                # aborts the transaction on error, but MySQL's guard procedure is DDL, which would commit
+                # away a savepoint.
+                savepoint = (
+                    connection.begin_nested() if connection.dialect.name == "postgresql" else nullcontext()
+                )
+                with pytest.raises((RuntimeError, DBAPIError), match=model.__tablename__), savepoint:
+                    _migration.downgrade()
+            finally:
+                _index_migration.upgrade()
         assert inspect(connection).has_table("dynamic_region")
         for retained in MODELS:
             assert "region_id" in {c["name"] for c in inspect(connection).get_columns(retained.__tablename__)}
