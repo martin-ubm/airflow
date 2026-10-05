@@ -25,13 +25,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 // Java half of the KubernetesExecutor lang-SDK system test bundle. Registers the
-// Java tasks of the shared "lang_sdk_combined" Dag; the Go tasks of the same
-// dag_id live in ../go_example and the Python stub Dag in ../dags. The
-// coordinator locates this jar by dag_id, so only the Java tasks are registered
-// here.
-@Builder.Dag(id = "lang_sdk_combined")
-public class CombinedExample {
-  private static final Logger logger = LoggerFactory.getLogger(CombinedExample.class);
+// Java tasks of the shared "lang_sdk_mixed_language" Dag; the Go and TypeScript
+// tasks of the same dag_id live in ../go_example, ../ts_example and the Python
+// stub Dag in ../dags. The coordinator locates this jar by dag_id, so only the
+// Java tasks are registered here.
+@Builder.Dag(id = "lang_sdk_mixed_language")
+public class MixedLanguageExample {
+  private static final Logger logger = LoggerFactory.getLogger(MixedLanguageExample.class);
 
   @Builder.Task(id = "java_extract")
   public long extract(Client client) {
